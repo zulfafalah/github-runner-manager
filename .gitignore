@@ -1,0 +1,61 @@
+# Binaries
+github-runner-manager
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go build output
+*.o
+*.a
+*.out
+
+# Go test artifacts
+*.test
+*.bench
+
+# Go module cache
+vendor/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# macOS Finder
+Icon?
+._*
+
+# macOS Spotlight
+.Spotlight-V100
+
+# macOS Trash
+.Trashes
+
+# Fyne app bundle
+*.app
+FyneApp.toml.local
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Coverage reports
+coverage.out
+coverage.html
+
+# Temporary files
+tmp/
+temp/
