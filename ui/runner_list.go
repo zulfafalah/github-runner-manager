@@ -26,6 +26,7 @@ type RunnerListItem struct {
 type RunnerList struct {
 	container  *fyne.Container
 	items      map[string]*fyne.Container
+	order      []string // menyimpan urutan insert agar tampilan tidak acak
 	onSelect   func(id string)
 	selectedID string
 	scroll     *container.Scroll
@@ -34,32 +35,28 @@ type RunnerList struct {
 
 // hexToColor mengkonversi hex color string ke color.Color
 func hexToColor(hex string) color.Color {
-	// Remove # if present
 	if len(hex) > 0 && hex[0] == '#' {
 		hex = hex[1:]
 	}
-	
 	if len(hex) != 6 {
-		return color.Gray{128}
+		return color.Gray{Y: 128}
 	}
-	
 	r, _ := strconv.ParseInt(hex[0:2], 16, 64)
 	g, _ := strconv.ParseInt(hex[2:4], 16, 64)
 	b, _ := strconv.ParseInt(hex[4:6], 16, 64)
-	
-	return color.RGBA{uint8(r), uint8(g), uint8(b), 255}
+	return color.RGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 255}
 }
 
-// statusColors adalah mapping status ke warna
+// statusColors adalah mapping status ke warna dot
 var statusColors = map[model.RunnerStatus]string{
-	model.StatusIdle:       "#9E9E9E", // Gray
-	model.StatusInstalling: "#FFC107", // Amber
-	model.StatusRunning:    "#4CAF50", // Green
-	model.StatusStopped:    "#F44336", // Red
-	model.StatusError:      "#FF5722", // Deep Orange
+	model.StatusIdle:       "#9E9E9E",
+	model.StatusInstalling: "#FFC107",
+	model.StatusRunning:    "#4CAF50",
+	model.StatusStopped:    "#F44336",
+	model.StatusError:      "#FF5722",
 }
 
-// statusIcons adalah mapping status ke ikon
+// statusIcons (dipakai untuk referensi, tidak dipakai langsung di list item)
 var statusIcons = map[model.RunnerStatus]fyne.Resource{
 	model.StatusIdle:       theme.RadioButtonIcon(),
 	model.StatusInstalling: theme.ViewRefreshIcon(),
@@ -72,38 +69,41 @@ var statusIcons = map[model.RunnerStatus]fyne.Resource{
 func NewRunnerList(onSelect func(id string)) *RunnerList {
 	rl := &RunnerList{
 		items:    make(map[string]*fyne.Container),
+		order:    []string{},
 		onSelect: onSelect,
 	}
 
-	// Header
 	header := widget.NewLabelWithStyle("GitHub Runners", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 
-	// Container untuk list
 	rl.listBox = container.NewVBox()
 	rl.scroll = container.NewScroll(rl.listBox)
-
 	rl.container = container.NewBorder(header, nil, nil, nil, rl.scroll)
-	rl.container.Resize(fyne.NewSize(250, 400))
 
 	return rl
 }
 
 // AddRunner menambahkan runner ke daftar
 func (rl *RunnerList) AddRunner(state *model.RunnerState) {
-	// Jika sudah ada, update saja
 	if _, exists := rl.items[state.Config.ID]; exists {
 		rl.UpdateRunner(state)
 		return
 	}
-	
 	item := rl.createListItem(state)
 	rl.items[state.Config.ID] = item
+	rl.order = append(rl.order, state.Config.ID) // simpan urutan insert
 	rl.refreshList()
 }
 
 // RemoveRunner menghapus runner dari daftar
 func (rl *RunnerList) RemoveRunner(id string) {
 	delete(rl.items, id)
+	// Hapus dari order slice
+	for i, oid := range rl.order {
+		if oid == id {
+			rl.order = append(rl.order[:i], rl.order[i+1:]...)
+			break
+		}
+	}
 	if rl.selectedID == id {
 		rl.selectedID = ""
 	}
@@ -112,45 +112,51 @@ func (rl *RunnerList) RemoveRunner(id string) {
 
 // UpdateRunner memperbarui tampilan runner
 func (rl *RunnerList) UpdateRunner(state *model.RunnerState) {
-	// Rebuild item untuk update sederhana
 	if _, exists := rl.items[state.Config.ID]; exists {
-		newItem := rl.createListItem(state)
-		rl.items[state.Config.ID] = newItem
+		rl.items[state.Config.ID] = rl.createListItem(state)
 		rl.refreshList()
 	}
 }
 
-// createListItem membuat item daftar untuk satu runner
+// createListItem membuat item daftar untuk satu runner.
+//
+// Penyebab teks tidak terlihat sebelumnya:
+//  1. container.NewWithoutLayout → MinSize = 0, menyebabkan label tertimpa
+//  2. tappableContainer bukan widget proper → Fyne tidak me-render children-nya
+//
+// Solusi: canvas.Rectangle dengan SetMinSize sebagai dot, lalu
+// container.NewStack(invisibleBtn, row) agar baris bisa diklik DAN label terlihat.
 func (rl *RunnerList) createListItem(state *model.RunnerState) *fyne.Container {
 	id := state.Config.ID
 
-	// Status indicator (circle)
-	colorStr := statusColors[state.Status]
-	statusCircle := canvas.NewCircle(hexToColor(colorStr))
-	statusCircle.Resize(fyne.NewSize(12, 12))
-	
-	// Label
-	label := widget.NewLabel(fmt.Sprintf("%s\n%s", state.Config.Name, state.Status))
+	// Status dot — canvas.Rectangle punya MinSize yang dipatuhi layout
+	colorStr, ok := statusColors[state.Status]
+	if !ok {
+		colorStr = "#9E9E9E"
+	}
+	dot := canvas.NewRectangle(hexToColor(colorStr))
+	dot.SetMinSize(fyne.NewSize(10, 10))
+	dot.CornerRadius = 5
 
-	// Button
-	btn := widget.NewButtonWithIcon("", theme.NavigateNextIcon(), func() {
+	// Label nama dan status
+	nameLabel := widget.NewLabelWithStyle(state.Config.Name, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	statusLabel := widget.NewLabel(fmt.Sprintf("● %s", state.Status))
+
+	// Susun dot di kiri, info di tengah
+	info := container.NewVBox(nameLabel, statusLabel)
+	row := container.NewBorder(nil, nil, container.NewCenter(dot), nil, info)
+
+	// Button transparan untuk clickable — ditumpuk di bawah row via Stack
+	// (Stack menggambar dari indeks 0 ke atas; widget di indeks tinggi menimpa yang di bawah)
+	invisibleBtn := widget.NewButton("", func() {
 		rl.SelectRunner(id)
 	})
-	btn.Importance = widget.LowImportance
+	invisibleBtn.Importance = widget.LowImportance
 
-	// Layout untuk circle
-	circleContainer := container.NewWithoutLayout(statusCircle)
-	circleContainer.Resize(fyne.NewSize(20, 20))
+	// row di atas btn agar label tetap terlihat dan klik tetap terdaftar
+	card := container.NewStack(invisibleBtn, row)
 
-	// Main layout
-	content := container.NewBorder(nil, nil, circleContainer, btn, label)
-	
-	// Make clickable
-	tappable := newTappableContainer(content, func() {
-		rl.SelectRunner(id)
-	})
-
-	return container.NewBorder(nil, widget.NewSeparator(), nil, nil, tappable)
+	return container.NewBorder(nil, widget.NewSeparator(), nil, nil, card)
 }
 
 // SelectRunner menangani pemilihan runner (publik)
@@ -165,9 +171,12 @@ func (rl *RunnerList) SelectRunner(id string) {
 // refreshList memperbarui tampilan daftar
 func (rl *RunnerList) refreshList() {
 	rl.listBox.Objects = nil
-	
-	for _, item := range rl.items {
-		rl.listBox.Add(item)
+
+	// Iterasi berdasarkan order slice, bukan map, agar urutan selalu konsisten
+	for _, id := range rl.order {
+		if item, ok := rl.items[id]; ok {
+			rl.listBox.Add(item)
+		}
 	}
 
 	if len(rl.items) == 0 {
@@ -183,26 +192,3 @@ func (rl *RunnerList) refreshList() {
 func (rl *RunnerList) GetContainer() fyne.CanvasObject {
 	return rl.container
 }
-
-// tappableContainer adalah container yang bisa diklik
-type tappableContainer struct {
-	fyne.CanvasObject
-	onTapped func()
-}
-
-func newTappableContainer(content fyne.CanvasObject, onTapped func()) *tappableContainer {
-	return &tappableContainer{
-		CanvasObject: content,
-		onTapped:     onTapped,
-	}
-}
-
-func (tc *tappableContainer) Tapped(*fyne.PointEvent) {
-	if tc.onTapped != nil {
-		tc.onTapped()
-	}
-}
-
-func (tc *tappableContainer) TappedSecondary(*fyne.PointEvent) {}
-
-var _ fyne.Tappable = (*tappableContainer)(nil)

@@ -68,17 +68,20 @@ func (a *App) Initialize() {
 	// Runner form (lazy init)
 	a.runnerForm = NewRunnerForm(a.window, a.onRunnerFormSubmit, nil)
 
-	// Layout utama
+	// Layout utama: HSplit agar sidebar mendapat lebar yang dihormati
+	split := container.NewHSplit(
+		a.runnerList.GetContainer(),
+		a.runnerDetail.GetContainer(),
+	)
+	split.SetOffset(0.22) // ~22% untuk sidebar (~264px dari 1200px)
+
 	mainContent := container.NewBorder(
 		a.toolbar.GetContainer(),
 		nil,
-		a.runnerList.GetContainer(),
 		nil,
-		a.runnerDetail.GetContainer(),
+		nil,
+		split,
 	)
-
-	// Set padding dan border
-	mainContent = container.NewPadded(mainContent)
 
 	a.window.SetContent(mainContent)
 
