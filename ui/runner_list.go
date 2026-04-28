@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"strconv"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -45,6 +46,28 @@ func hexToColor(hex string) color.Color {
 	g, _ := strconv.ParseInt(hex[2:4], 16, 64)
 	b, _ := strconv.ParseInt(hex[4:6], 16, 64)
 	return color.RGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 255}
+}
+
+// extractDisplayName mengekstrak nama tampilan dari nama runner.
+// Jika nama berupa URL GitHub (mis. https://github.com/owner/repo),
+// hanya bagian repo-nya yang dikembalikan. Selain itu dikembalikan apa adanya.
+func extractDisplayName(name string) string {
+	// Trim whitespace dan trailing slash
+	name = strings.TrimSpace(strings.TrimRight(name, "/"))
+	if name == "" {
+		return name
+	}
+	// Jika mengandung '/', ambil segment terakhir sebagai nama
+	if strings.Contains(name, "/") {
+		parts := strings.Split(name, "/")
+		// Cari segment terakhir yang tidak kosong
+		for i := len(parts) - 1; i >= 0; i-- {
+			if parts[i] != "" {
+				return parts[i]
+			}
+		}
+	}
+	return name
 }
 
 // statusColors adalah mapping status ke warna dot
@@ -138,8 +161,8 @@ func (rl *RunnerList) createListItem(state *model.RunnerState) *fyne.Container {
 	dot.SetMinSize(fyne.NewSize(10, 10))
 	dot.CornerRadius = 5
 
-	// Label nama dan status
-	nameLabel := widget.NewLabelWithStyle(state.Config.Name, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	// Label nama dan status — tampilkan nama repo jika nama berupa URL
+	nameLabel := widget.NewLabelWithStyle(extractDisplayName(state.Config.Name), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	statusLabel := widget.NewLabel(fmt.Sprintf("● %s", state.Status))
 
 	// Susun dot di kiri, info di tengah

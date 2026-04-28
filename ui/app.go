@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"image/color"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/storage"
@@ -68,19 +70,18 @@ func (a *App) Initialize() {
 	// Runner form (lazy init)
 	a.runnerForm = NewRunnerForm(a.window, a.onRunnerFormSubmit, nil)
 
-	// Layout utama: HSplit agar sidebar mendapat lebar yang dihormati
-	split := container.NewHSplit(
-		a.runnerList.GetContainer(),
-		a.runnerDetail.GetContainer(),
-	)
-	split.SetOffset(0.22) // ~22% untuk sidebar (~264px dari 1200px)
+	// Sidebar diberi lebar minimum dengan canvas.Rectangle transparan
+	// agar container.NewBorder menghormatif lebarnya (tanpa garis HSplit)
+	sidebarMinWidth := canvas.NewRectangle(color.Transparent)
+	sidebarMinWidth.SetMinSize(fyne.NewSize(220, 0))
+	sidebar := container.NewStack(sidebarMinWidth, a.runnerList.GetContainer())
 
 	mainContent := container.NewBorder(
 		a.toolbar.GetContainer(),
 		nil,
+		sidebar,
 		nil,
-		nil,
-		split,
+		a.runnerDetail.GetContainer(),
 	)
 
 	a.window.SetContent(mainContent)
