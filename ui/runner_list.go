@@ -169,6 +169,13 @@ func (rl *RunnerList) createListItem(state *model.RunnerState) *fyne.Container {
 	info := container.NewVBox(nameLabel, statusLabel)
 	row := container.NewBorder(nil, nil, container.NewCenter(dot), nil, info)
 
+	// Background highlight untuk item yang sedang dipilih
+	bg := canvas.NewRectangle(color.Transparent)
+	if id == rl.selectedID {
+		bg.FillColor = color.RGBA{R: 127, G: 168, B: 246, A: 180} // #7fa8f6 lebih muda
+		bg.CornerRadius = 6
+	}
+
 	// Button transparan untuk clickable — ditumpuk di bawah row via Stack
 	// (Stack menggambar dari indeks 0 ke atas; widget di indeks tinggi menimpa yang di bawah)
 	invisibleBtn := widget.NewButton("", func() {
@@ -176,8 +183,8 @@ func (rl *RunnerList) createListItem(state *model.RunnerState) *fyne.Container {
 	})
 	invisibleBtn.Importance = widget.LowImportance
 
-	// row di atas btn agar label tetap terlihat dan klik tetap terdaftar
-	card := container.NewStack(invisibleBtn, row)
+	// bg → btn → row: background di paling bawah, klik tetap terdaftar, label terlihat
+	card := container.NewStack(bg, invisibleBtn, row)
 
 	return container.NewBorder(nil, widget.NewSeparator(), nil, nil, card)
 }
