@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"syscall"
 	"time"
 
 	"github-runner-manager/model"
@@ -46,6 +47,12 @@ func StartRunner(state *model.RunnerState) error {
 
 	// Set environment variables jika diperlukan
 	cmd.Env = os.Environ()
+
+	// Gunakan process group agar sinyal diteruskan ke semua child processes
+	// (termasuk runner binary yang dijalankan oleh run.sh)
+	if runtime.GOOS != "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	}
 
 	// Setup pipes untuk stdout dan stderr
 	stdout, err := cmd.StdoutPipe()
@@ -100,7 +107,15 @@ func StartRunner(state *model.RunnerState) error {
 		state.ExitChan <- err
 		close(state.ExitChan)
 
-		if err != nil {
+		if state.Stopping {
+			// Dihentikan secara sengaja — bukan error
+			state.Status = model.StatusStopped
+			state.Stopping = false
+			select {
+			case state.LogChan <- fmt.Sprintf("[%s] Runner stopped", time.Now().Format("15:04:05")):
+			default:
+			}
+		} else if err != nil {
 			state.Status = model.StatusError
 			select {
 			case state.LogChan <- fmt.Sprintf("[%s] Runner exited with error: %v", time.Now().Format("15:04:05"), err):
@@ -127,42 +142,52 @@ func StopRunner(state *model.RunnerState) error {
 		return fmt.Errorf("runner is not running")
 	}
 
-	// Kirim sinyal untuk menghentikan process
-	// Pada Windows, kita gunakan Kill karena tidak ada SIGTERM yang standar
-	// Pada Unix, kita bisa gunakan Interrupt atau Term
+	// Tandai bahwa ini penghentian yang disengaja
+	state.Stopping = true
 
 	var err error
 	if runtime.GOOS == "windows" {
 		err = state.Process.Kill()
 	} else {
-		// Coba SIGTERM dulu
-		err = state.Process.Signal(os.Interrupt)
+		// Kirim SIGTERM ke seluruh process group (negatif PID).
+		// Ini memastikan sinyal sampai ke runner binary (child dari run.sh),
+		// sehingga runner sempat unregister session dari GitHub.
+		pgid := state.Process.Pid
+		err = syscall.Kill(-pgid, syscall.SIGTERM)
 		if err != nil {
-			// Jika gagal, gunakan Kill
-			err = state.Process.Kill()
-		}
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to stop runner: %w", err)
-	}
-
-	state.Status = model.StatusStopped
-
-	// Tunggu process benar-benar selesai (dengan timeout)
-	if state.ExitChan != nil {
-		select {
-		case <-state.ExitChan:
-			// Process selesai
-		case <-time.After(5 * time.Second):
-			// Timeout, force kill
-			if state.Process != nil {
-				state.Process.Kill()
+			// Fallback: kirim langsung ke process
+			err = state.Process.Signal(syscall.SIGTERM)
+			if err != nil {
+				err = state.Process.Kill()
 			}
 		}
 	}
 
-	state.Process = nil
+	if err != nil {
+		state.Stopping = false
+		return fmt.Errorf("failed to stop runner: %w", err)
+	}
+
+	// Tunggu process benar-benar selesai (dengan timeout)
+	// Status akan di-set oleh goroutine Wait setelah proses selesai
+	if state.ExitChan != nil {
+		select {
+		case <-state.ExitChan:
+			// Process selesai dengan bersih
+		case <-time.After(15 * time.Second):
+			// Timeout, force kill seluruh process group
+			if state.Process != nil {
+				syscall.Kill(-state.Process.Pid, syscall.SIGKILL)
+				state.Process.Kill()
+			}
+			// Tunggu lagi sebentar setelah force kill
+			select {
+			case <-state.ExitChan:
+			case <-time.After(3 * time.Second):
+			}
+		}
+	}
+
 	return nil
 }
 

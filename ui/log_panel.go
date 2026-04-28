@@ -11,14 +11,16 @@ import (
 // LogPanel adalah widget untuk menampilkan log secara real-time
 type LogPanel struct {
 	container *fyne.Container
-	textArea  *widget.TextGrid
+	textArea  *widget.Entry
 	lines     []string
 	maxLines  int
 }
 
 // NewLogPanel membuat instance LogPanel baru
 func NewLogPanel() *LogPanel {
-	textArea := widget.NewTextGrid()
+	textArea := widget.NewMultiLineEntry()
+	textArea.Wrapping = fyne.TextWrapOff
+	textArea.SetPlaceHolder("")
 
 	lp := &LogPanel{
 		textArea: textArea,
@@ -45,8 +47,6 @@ func (lp *LogPanel) Append(text string) {
 	// Update text area
 	content := strings.Join(lp.lines, "\n")
 	lp.textArea.SetText(content)
-
-	// Scroll ke bawah (opsional, bisa ditambahkan nanti)
 }
 
 // Clear menghapus semua log

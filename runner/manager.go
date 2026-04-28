@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/google/uuid"
@@ -168,6 +169,68 @@ func (rm *RunnerManager) Start(id string) error {
 	}()
 
 	return nil
+}
+
+// Reconfigure menjalankan ulang config.sh --replace untuk mendapatkan sesi baru dari GitHub.
+// Berguna saat muncul error "A session for this runner already exists".
+func (rm *RunnerManager) Reconfigure(id string) error {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	state, exists := rm.runners[id]
+	if !exists {
+		return fmt.Errorf("runner not found")
+	}
+
+	if state.Status == model.StatusRunning {
+		return fmt.Errorf("stop the runner before reconfiguring")
+	}
+
+	if !CheckRunnerInstalled(state.Config.WorkDir) {
+		return fmt.Errorf("runner is not installed yet")
+	}
+
+	state.Status = model.StatusInstalling
+	go func() {
+		state.LogChan <- "Re-configuring runner (replacing existing session)..."
+
+		// Hapus konfigurasi lama dulu agar config.sh tidak menolak
+		if err := removeRunnerConfig(state.Config.WorkDir, state.LogChan); err != nil {
+			state.Status = model.StatusError
+			state.LogChan <- "Error removing old config: " + err.Error()
+			return
+		}
+
+		err := runConfigScript(
+			state.Config.WorkDir,
+			state.Config.RepoURL,
+			state.Config.Token,
+			state.Config.Name,
+			state.Config.Labels,
+			state.LogChan,
+		)
+		if err != nil {
+			state.Status = model.StatusError
+			state.LogChan <- "Error reconfiguring: " + err.Error()
+			return
+		}
+		state.Status = model.StatusIdle
+		state.LogChan <- "Runner reconfigured successfully. You can now start it."
+	}()
+	return nil
+}
+
+// IsWorkDirInUse memeriksa apakah workDir sudah digunakan oleh runner lain
+func (rm *RunnerManager) IsWorkDirInUse(workDir string, excludeID string) bool {
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+
+	for _, state := range rm.runners {
+		if state.Config.ID != excludeID && state.Config.WorkDir == workDir {
+			return true
+		}
+	}
+	return false
 }
 
 // Stop menghentikan runner dengan ID tertentu

@@ -16,31 +16,33 @@ import (
 
 // RunnerDetail menampilkan detail dan kontrol untuk satu runner
 type RunnerDetail struct {
-	container    *fyne.Container
-	nameLabel    *widget.Label
-	repoLabel    *widget.Label
-	statusLabel  *widget.Label
-	statusBadge  *canvas.Circle
-	startBtn     *widget.Button
-	stopBtn      *widget.Button
-	removeBtn    *widget.Button
-	logPanel     *LogPanel
+	container      *fyne.Container
+	nameLabel      *widget.Label
+	repoLabel      *widget.Label
+	statusLabel    *widget.Label
+	statusBadge    *canvas.Circle
+	startBtn       *widget.Button
+	stopBtn        *widget.Button
+	removeBtn      *widget.Button
+	reconfigureBtn *widget.Button
+	logPanel       *LogPanel
 
-	currentState *model.RunnerState
-	onStart      func(id string)
-	onStop       func(id string)
-	onRemove     func(id string)
-	onClearLog   func()
-	onSaveLog    func()
+	currentState  *model.RunnerState
+	onStart       func(id string)
+	onStop        func(id string)
+	onRemove      func(id string)
+	onReconfigure func(id string)
+	onClearLog    func()
+	onSaveLog     func()
 }
 
 // statusColors adalah mapping status ke warna
 var detailStatusColors = map[model.RunnerStatus]color.Color{
-	model.StatusIdle:       color.RGBA{158, 158, 158, 255},   // Gray
-	model.StatusInstalling: color.RGBA{255, 193, 7, 255},     // Amber
-	model.StatusRunning:    color.RGBA{76, 175, 80, 255},     // Green
-	model.StatusStopped:    color.RGBA{244, 67, 54, 255},     // Red
-	model.StatusError:      color.RGBA{255, 87, 34, 255},     // Deep Orange
+	model.StatusIdle:       color.RGBA{158, 158, 158, 255}, // Gray
+	model.StatusInstalling: color.RGBA{255, 193, 7, 255},   // Amber
+	model.StatusRunning:    color.RGBA{76, 175, 80, 255},   // Green
+	model.StatusStopped:    color.RGBA{244, 67, 54, 255},   // Red
+	model.StatusError:      color.RGBA{255, 87, 34, 255},   // Deep Orange
 }
 
 // NewRunnerDetail membuat instance RunnerDetail baru
@@ -48,15 +50,17 @@ func NewRunnerDetail(
 	onStart func(id string),
 	onStop func(id string),
 	onRemove func(id string),
+	onReconfigure func(id string),
 	onClearLog func(),
 	onSaveLog func(),
 ) *RunnerDetail {
 	rd := &RunnerDetail{
-		onStart:    onStart,
-		onStop:     onStop,
-		onRemove:   onRemove,
-		onClearLog: onClearLog,
-		onSaveLog:  onSaveLog,
+		onStart:       onStart,
+		onStop:        onStop,
+		onRemove:      onRemove,
+		onReconfigure: onReconfigure,
+		onClearLog:    onClearLog,
+		onSaveLog:     onSaveLog,
 	}
 
 	// Title
@@ -98,7 +102,14 @@ func NewRunnerDetail(
 	})
 	rd.removeBtn.Importance = widget.DangerImportance
 
-	buttonContainer := container.NewHBox(rd.startBtn, rd.stopBtn, rd.removeBtn)
+	rd.reconfigureBtn = widget.NewButtonWithIcon("Reconfigure", theme.ViewRefreshIcon(), func() {
+		if rd.currentState != nil && rd.onReconfigure != nil {
+			rd.onReconfigure(rd.currentState.Config.ID)
+		}
+	})
+	rd.reconfigureBtn.Importance = widget.WarningImportance
+
+	buttonContainer := container.NewHBox(rd.startBtn, rd.stopBtn, rd.removeBtn, rd.reconfigureBtn)
 
 	// Log panel
 	rd.logPanel = NewLogPanel()
@@ -174,6 +185,7 @@ func (rd *RunnerDetail) updateButtonStates() {
 		rd.startBtn.Disable()
 		rd.stopBtn.Disable()
 		rd.removeBtn.Disable()
+		rd.reconfigureBtn.Disable()
 		return
 	}
 
@@ -182,14 +194,22 @@ func (rd *RunnerDetail) updateButtonStates() {
 		rd.startBtn.Disable()
 		rd.stopBtn.Enable()
 		rd.removeBtn.Disable()
-	case model.StatusStopped, model.StatusIdle, model.StatusError:
+		rd.reconfigureBtn.Disable()
+	case model.StatusStopped, model.StatusIdle:
 		rd.startBtn.Enable()
 		rd.stopBtn.Disable()
 		rd.removeBtn.Enable()
+		rd.reconfigureBtn.Enable()
+	case model.StatusError:
+		rd.startBtn.Enable()
+		rd.stopBtn.Disable()
+		rd.removeBtn.Enable()
+		rd.reconfigureBtn.Enable() // paling berguna saat error session conflict
 	case model.StatusInstalling:
 		rd.startBtn.Disable()
 		rd.stopBtn.Disable()
 		rd.removeBtn.Disable()
+		rd.reconfigureBtn.Disable()
 	}
 }
 

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"image/color"
 	"os"
 	"path/filepath"
@@ -60,6 +61,7 @@ func (a *App) Initialize() {
 		a.onStartRunner,
 		a.onStopRunner,
 		a.onRemoveRunner,
+		a.onReconfigureRunner,
 		a.onClearLog,
 		a.onSaveLog,
 	)
@@ -127,6 +129,15 @@ func (a *App) onAddRunner() {
 }
 
 func (a *App) onRunnerFormSubmit(config model.RunnerConfig) {
+	// Validasi WorkDir tidak boleh sama dengan runner lain
+	if a.manager.IsWorkDirInUse(config.WorkDir, "") {
+		dialog.ShowError(
+			fmt.Errorf("Work directory is already used by another runner.\nPlease choose a different directory."),
+			a.window,
+		)
+		return
+	}
+
 	// Tambahkan runner ke manager
 	state := a.manager.Add(config)
 
@@ -220,6 +231,18 @@ func (a *App) onRemoveRunner(id string) {
 		},
 		a.window,
 	)
+}
+
+func (a *App) onReconfigureRunner(id string) {
+	err := a.manager.Reconfigure(id)
+	if err != nil {
+		dialog.ShowError(err, a.window)
+		return
+	}
+
+	state, _ := a.manager.Get(id)
+	a.runnerList.UpdateRunner(state)
+	a.runnerDetail.Refresh()
 }
 
 func (a *App) onClearLog() {

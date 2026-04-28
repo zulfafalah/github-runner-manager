@@ -237,6 +237,56 @@ func extractZip(srcPath, destDir string, statusChan chan<- string) error {
 	return nil
 }
 
+// removeRunnerConfig menjalankan config.sh remove untuk menghapus registrasi runner lokal
+func removeRunnerConfig(workDir string, statusChan chan<- string) error {
+	var configScript string
+	if runtime.GOOS == "windows" {
+		configScript = filepath.Join(workDir, "config.cmd")
+	} else {
+		configScript = filepath.Join(workDir, "config.sh")
+	}
+
+	if _, err := os.Stat(configScript); os.IsNotExist(err) {
+		return nil // belum terkonfigurasi, tidak perlu dihapus
+	}
+
+	if runtime.GOOS != "windows" {
+		os.Chmod(configScript, 0755)
+	}
+
+	statusChan <- "Removing existing runner configuration..."
+
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd", "/c", configScript, "remove", "--unattended")
+	} else {
+		cmd = exec.Command(configScript, "remove", "--unattended")
+	}
+	cmd.Dir = workDir
+	cmd.Env = os.Environ()
+
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+
+	// Abaikan error dari remove (mungkin sudah tidak terdaftar di GitHub)
+	if err := cmd.Run(); err != nil {
+		statusChan <- fmt.Sprintf("Warning: remove step returned error (ignored): %s", strings.TrimSpace(errBuf.String()))
+	} else {
+		statusChan <- "Existing configuration removed."
+	}
+
+	// Hapus file .runner agar config.sh bisa berjalan ulang tanpa konflik
+	runnerFile := filepath.Join(workDir, ".runner")
+	os.Remove(runnerFile)
+	credFile := filepath.Join(workDir, ".credentials")
+	os.Remove(credFile)
+	credParamsFile := filepath.Join(workDir, ".credentials_rsaparams")
+	os.Remove(credParamsFile)
+
+	return nil
+}
+
 // runConfigScript menjalankan config.sh untuk mendaftarkan runner ke GitHub
 func runConfigScript(workDir, repoURL, token, name string, labels []string, statusChan chan<- string) error {
 	statusChan <- "Configuring runner..."
