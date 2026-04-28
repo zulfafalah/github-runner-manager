@@ -9,6 +9,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -152,22 +153,22 @@ func (rl *RunnerList) UpdateRunner(state *model.RunnerState) {
 func (rl *RunnerList) createListItem(state *model.RunnerState) *fyne.Container {
 	id := state.Config.ID
 
-	// Status dot — canvas.Rectangle punya MinSize yang dipatuhi layout
+	// Label nama dan status — tampilkan nama repo jika nama berupa URL
+	nameLabel := widget.NewLabelWithStyle(extractDisplayName(state.Config.Name), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+
 	colorStr, ok := statusColors[state.Status]
 	if !ok {
 		colorStr = "#9E9E9E"
 	}
-	dot := canvas.NewRectangle(hexToColor(colorStr))
-	dot.SetMinSize(fyne.NewSize(10, 10))
-	dot.CornerRadius = 5
+	statusLabel := canvas.NewText(fmt.Sprintf("%s", state.Status), hexToColor(colorStr))
+	statusLabel.TextSize = 12
+	statusLabel.Alignment = fyne.TextAlignLeading
 
-	// Label nama dan status — tampilkan nama repo jika nama berupa URL
-	nameLabel := widget.NewLabelWithStyle(extractDisplayName(state.Config.Name), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	statusLabel := widget.NewLabel(fmt.Sprintf("● %s", state.Status))
-
-	// Susun dot di kiri, info di tengah
-	info := container.NewVBox(nameLabel, statusLabel)
-	row := container.NewBorder(nil, nil, container.NewCenter(dot), nil, info)
+	// Susun info — statusLabel disejajarkan dengan nameLabel lewat padding kiri yang sama
+	statusPadded := container.New(layout.NewCustomPaddedLayout(-6, 0, 4, 0), statusLabel)
+	info := container.NewVBox(nameLabel, statusPadded)
+	paddedInfo := container.New(layout.NewCustomPaddedLayout(6, 6, 8, 8), info)
+	row := container.NewBorder(nil, nil, nil, nil, paddedInfo)
 
 	// Background highlight untuk item yang sedang dipilih
 	bg := canvas.NewRectangle(color.Transparent)
