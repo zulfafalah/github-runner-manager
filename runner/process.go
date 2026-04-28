@@ -15,7 +15,7 @@ import (
 // StartRunner memulai runner process dan mengalirkan log ke channel
 func StartRunner(state *model.RunnerState) error {
 	workDir := state.Config.WorkDir
-	
+
 	// Tentukan script yang akan dijalankan
 	var scriptName string
 	if runtime.GOOS == "windows" {
@@ -23,9 +23,9 @@ func StartRunner(state *model.RunnerState) error {
 	} else {
 		scriptName = "run.sh"
 	}
-	
+
 	scriptPath := filepath.Join(workDir, scriptName)
-	
+
 	// Verifikasi script ada
 	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
 		return fmt.Errorf("runner script not found at %s", scriptPath)
@@ -40,10 +40,10 @@ func StartRunner(state *model.RunnerState) error {
 		os.Chmod(scriptPath, 0755)
 		cmd = exec.Command(scriptPath)
 	}
-	
+
 	// Set working directory
 	cmd.Dir = workDir
-	
+
 	// Set environment variables jika diperlukan
 	cmd.Env = os.Environ()
 
@@ -52,7 +52,7 @@ func StartRunner(state *model.RunnerState) error {
 	if err != nil {
 		return fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
-	
+
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stderr pipe: %w", err)
@@ -99,7 +99,7 @@ func StartRunner(state *model.RunnerState) error {
 		err := cmd.Wait()
 		state.ExitChan <- err
 		close(state.ExitChan)
-		
+
 		if err != nil {
 			state.Status = model.StatusError
 			select {
@@ -113,7 +113,7 @@ func StartRunner(state *model.RunnerState) error {
 			default:
 			}
 		}
-		
+
 		// Reset process reference
 		state.Process = nil
 	}()
@@ -130,7 +130,7 @@ func StopRunner(state *model.RunnerState) error {
 	// Kirim sinyal untuk menghentikan process
 	// Pada Windows, kita gunakan Kill karena tidak ada SIGTERM yang standar
 	// Pada Unix, kita bisa gunakan Interrupt atau Term
-	
+
 	var err error
 	if runtime.GOOS == "windows" {
 		err = state.Process.Kill()
@@ -148,7 +148,6 @@ func StopRunner(state *model.RunnerState) error {
 	}
 
 	state.Status = model.StatusStopped
-	state.Process = nil
 
 	// Tunggu process benar-benar selesai (dengan timeout)
 	if state.ExitChan != nil {
@@ -163,6 +162,7 @@ func StopRunner(state *model.RunnerState) error {
 		}
 	}
 
+	state.Process = nil
 	return nil
 }
 
@@ -171,7 +171,7 @@ func IsRunning(state *model.RunnerState) bool {
 	if state.Process == nil {
 		return false
 	}
-	
+
 	// Cek apakah process masih ada
 	err := state.Process.Signal(os.Signal(nil))
 	return err == nil

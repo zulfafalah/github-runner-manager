@@ -60,7 +60,7 @@ func getPlatformSuffix() (string, string, error) {
 // getLatestRunnerVersion mengambil versi terbaru dari GitHub API
 func getLatestRunnerVersion() (string, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", githubRunnerRepo)
-	
+
 	resp, err := http.Get(url)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch latest release: %w", err)
@@ -74,7 +74,7 @@ func getLatestRunnerVersion() (string, error) {
 	var release struct {
 		TagName string `json:"tag_name"`
 	}
-	
+
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
 		return "", fmt.Errorf("failed to decode release info: %w", err)
 	}
@@ -93,7 +93,7 @@ func getDownloadURL(version string) (string, string, error) {
 
 	var filename string
 	var ext string
-	
+
 	if runtime.GOOS == "windows" {
 		filename = fmt.Sprintf("actions-runner-%s-%s-%s", platformOS, platformArch, version)
 		ext = ".zip"
@@ -102,16 +102,16 @@ func getDownloadURL(version string) (string, string, error) {
 		ext = ".tar.gz"
 	}
 
-	url := fmt.Sprintf("https://github.com/%s/releases/download/v%s/%s%s", 
+	url := fmt.Sprintf("https://github.com/%s/releases/download/v%s/%s%s",
 		githubRunnerRepo, version, filename, ext)
-	
+
 	return url, ext, nil
 }
 
 // downloadFile mengunduh file dari URL ke path tujuan
 func downloadFile(url, destPath string, statusChan chan<- string) error {
 	statusChan <- fmt.Sprintf("Downloading from: %s", url)
-	
+
 	resp, err := http.Get(url)
 	if err != nil {
 		return fmt.Errorf("failed to download: %w", err)
@@ -140,7 +140,7 @@ func downloadFile(url, destPath string, statusChan chan<- string) error {
 // extractTarGz mengekstrak file tar.gz ke direktori tujuan
 func extractTarGz(srcPath, destDir string, statusChan chan<- string) error {
 	statusChan <- "Extracting archive..."
-	
+
 	file, err := os.Open(srcPath)
 	if err != nil {
 		return fmt.Errorf("failed to open archive: %w", err)
@@ -175,12 +175,12 @@ func extractTarGz(srcPath, destDir string, statusChan chan<- string) error {
 			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
 				return fmt.Errorf("failed to create parent directory: %w", err)
 			}
-			
+
 			outFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode))
 			if err != nil {
 				return fmt.Errorf("failed to create file: %w", err)
 			}
-			
+
 			if _, err := io.Copy(outFile, tarReader); err != nil {
 				outFile.Close()
 				return fmt.Errorf("failed to extract file: %w", err)
@@ -195,7 +195,7 @@ func extractTarGz(srcPath, destDir string, statusChan chan<- string) error {
 // extractZip mengekstrak file zip ke direktori tujuan
 func extractZip(srcPath, destDir string, statusChan chan<- string) error {
 	statusChan <- "Extracting archive..."
-	
+
 	zipReader, err := zip.OpenReader(srcPath)
 	if err != nil {
 		return fmt.Errorf("failed to open zip: %w", err)
@@ -228,7 +228,7 @@ func extractZip(srcPath, destDir string, statusChan chan<- string) error {
 		_, err = io.Copy(outFile, srcFile)
 		srcFile.Close()
 		outFile.Close()
-		
+
 		if err != nil {
 			return fmt.Errorf("failed to extract file: %w", err)
 		}
@@ -238,7 +238,7 @@ func extractZip(srcPath, destDir string, statusChan chan<- string) error {
 }
 
 // runConfigScript menjalankan config.sh untuk mendaftarkan runner ke GitHub
-func runConfigScript(workDir, repoURL, token string, labels []string, statusChan chan<- string) error {
+func runConfigScript(workDir, repoURL, token, name string, labels []string, statusChan chan<- string) error {
 	statusChan <- "Configuring runner..."
 
 	var configScript string
@@ -273,8 +273,9 @@ func runConfigScript(workDir, repoURL, token string, labels []string, statusChan
 	args := []string{
 		"--url", fmt.Sprintf("https://github.com/%s/%s", owner, repo),
 		"--token", token,
+		"--name", name, // nama unik agar beberapa runner bisa berjalan bersamaan
 		"--unattended", // mode otomatis tanpa interaksi
-		"--replace",   // ganti jika runner dengan nama sama sudah ada
+		"--replace",    // ganti jika runner dengan nama sama sudah ada
 	}
 
 	if len(labels) > 0 {
@@ -327,7 +328,7 @@ func InstallRunner(config model.RunnerConfig, statusChan chan<- string) error {
 	}
 
 	statusChan <- "Checking for latest runner version..."
-	
+
 	// Dapatkan versi terbaru
 	version, err := getLatestRunnerVersion()
 	if err != nil {
@@ -362,7 +363,7 @@ func InstallRunner(config model.RunnerConfig, statusChan chan<- string) error {
 	statusChan <- "Installation complete"
 
 	// Jalankan config.sh untuk mendaftarkan runner ke GitHub
-	if err := runConfigScript(config.WorkDir, config.RepoURL, config.Token, config.Labels, statusChan); err != nil {
+	if err := runConfigScript(config.WorkDir, config.RepoURL, config.Token, config.Name, config.Labels, statusChan); err != nil {
 		return fmt.Errorf("failed to configure runner: %w", err)
 	}
 
@@ -376,7 +377,13 @@ func CheckRunnerInstalled(workDir string) bool {
 		_, err := os.Stat(filepath.Join(workDir, "run.cmd"))
 		return err == nil
 	}
-	
+
 	_, err := os.Stat(filepath.Join(workDir, "run.sh"))
+	return err == nil
+}
+
+// CheckRunnerConfigured memeriksa apakah runner sudah dikonfigurasi (terdaftar ke GitHub)
+func CheckRunnerConfigured(workDir string) bool {
+	_, err := os.Stat(filepath.Join(workDir, ".runner"))
 	return err == nil
 }

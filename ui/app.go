@@ -29,8 +29,10 @@ type App struct {
 	runnerDetail *RunnerDetail
 	toolbar      *AppToolbar
 
-	logListeners  map[string]chan struct{} // done channel per listener
-	stopListeners chan struct{}
+	logListeners     map[string]chan struct{} // done channel per listener
+	stopListeners    chan struct{}
+	logBuffers       map[string][]string // per-runner log lines buffer
+	selectedRunnerID string
 }
 
 // NewApp membuat instance aplikasi baru
@@ -46,6 +48,7 @@ func NewApp() *App {
 		manager:       runner.NewRunnerManager(),
 		logListeners:  make(map[string]chan struct{}),
 		stopListeners: make(chan struct{}),
+		logBuffers:    make(map[string][]string),
 	}
 }
 
@@ -106,15 +109,15 @@ func (a *App) Run() {
 
 // cleanup membersihkan resources sebelum keluar
 func (a *App) cleanup() {
-	// Hentikan semua runner
-	a.manager.StopAll()
-
-	// Tutup semua listener
+	// Tutup semua listener terlebih dahulu
 	select {
 	case <-a.stopListeners:
 	default:
 		close(a.stopListeners)
 	}
+
+	// Hentikan semua runner yang sedang berjalan
+	a.manager.StopAll()
 }
 
 // Event handlers
@@ -131,6 +134,7 @@ func (a *App) onRunnerFormSubmit(config model.RunnerConfig) {
 	a.runnerList.AddRunner(state)
 
 	// Pilih runner baru
+	a.selectedRunnerID = config.ID
 	a.runnerList.SelectRunner(config.ID)
 
 	// Auto-start listener untuk log
@@ -146,8 +150,14 @@ func (a *App) onRunnerSelect(id string) {
 		return
 	}
 
+	a.selectedRunnerID = id
 	a.runnerDetail.SetRunner(state)
-	// Log sudah di-forward oleh startLogListener — tidak perlu goroutine tambahan
+
+	// Load buffered log for this runner
+	a.runnerDetail.ClearLog()
+	for _, line := range a.logBuffers[id] {
+		a.runnerDetail.AppendLog(line)
+	}
 }
 
 func (a *App) onStartRunner(id string) {
@@ -189,6 +199,7 @@ func (a *App) onRemoveRunner(id string) {
 					close(done)
 					delete(a.logListeners, id)
 				}
+				delete(a.logBuffers, id)
 
 				// Hapus dari manager (juga menutup state.LogChan)
 				err := a.manager.Remove(id)
@@ -212,7 +223,9 @@ func (a *App) onRemoveRunner(id string) {
 }
 
 func (a *App) onClearLog() {
-	// Log sudah di-clear di runnerDetail
+	if a.selectedRunnerID != "" {
+		a.logBuffers[a.selectedRunnerID] = nil
+	}
 }
 
 func (a *App) onSaveLog() {
@@ -296,7 +309,10 @@ func (a *App) startLogListener(id string, logChan chan string) {
 				}
 				// Update UI di main thread
 				fyne.Do(func() {
-					a.runnerDetail.AppendLog(line)
+					a.logBuffers[id] = append(a.logBuffers[id], line)
+					if a.selectedRunnerID == id {
+						a.runnerDetail.AppendLog(line)
+					}
 				})
 			}
 		}

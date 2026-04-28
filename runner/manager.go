@@ -117,7 +117,7 @@ func (rm *RunnerManager) Start(id string) error {
 	// Cek apakah runner sudah terinstal
 	if !CheckRunnerInstalled(state.Config.WorkDir) {
 		state.Status = model.StatusInstalling
-		
+
 		// Jalankan instalasi di goroutine terpisah
 		go func() {
 			err := InstallRunner(state.Config, state.LogChan)
@@ -126,7 +126,7 @@ func (rm *RunnerManager) Start(id string) error {
 				state.LogChan <- "Error: " + err.Error()
 				return
 			}
-			
+
 			// Mulai runner setelah instalasi
 			err = StartRunner(state)
 			if err != nil {
@@ -134,16 +134,38 @@ func (rm *RunnerManager) Start(id string) error {
 				state.LogChan <- "Error: " + err.Error()
 			}
 		}()
-		
+
 		return nil
 	}
 
-	// Mulai runner
-	err := StartRunner(state)
-	if err != nil {
-		state.Status = model.StatusError
-		return err
+	// Runner sudah terinstal, cek apakah sudah terkonfigurasi
+	if CheckRunnerConfigured(state.Config.WorkDir) {
+		// Sudah terkonfigurasi, langsung jalankan tanpa reconfigure
+		go func() {
+			if err := StartRunner(state); err != nil {
+				state.Status = model.StatusError
+				state.LogChan <- "Error: " + err.Error()
+			}
+		}()
+		return nil
 	}
+
+	// Terinstal tapi belum terkonfigurasi, jalankan config dulu
+	go func() {
+		state.LogChan <- "Configuring runner..."
+		err := runConfigScript(state.Config.WorkDir, state.Config.RepoURL, state.Config.Token, state.Config.Name, state.Config.Labels, state.LogChan)
+		if err != nil {
+			state.Status = model.StatusError
+			state.LogChan <- "Error configuring: " + err.Error()
+			return
+		}
+
+		// Mulai runner setelah configure
+		if err := StartRunner(state); err != nil {
+			state.Status = model.StatusError
+			state.LogChan <- "Error: " + err.Error()
+		}
+	}()
 
 	return nil
 }
@@ -167,13 +189,18 @@ func (rm *RunnerManager) Stop(id string) error {
 
 // StopAll menghentikan semua runner
 func (rm *RunnerManager) StopAll() {
-	rm.mu.Lock()
-	defer rm.mu.Unlock()
-
+	// Ambil snapshot runners tanpa menahan lock saat blocking
+	rm.mu.RLock()
+	states := make([]*model.RunnerState, 0, len(rm.runners))
 	for _, state := range rm.runners {
 		if state.Status == model.StatusRunning && state.Process != nil {
-			StopRunner(state)
+			states = append(states, state)
 		}
+	}
+	rm.mu.RUnlock()
+
+	for _, state := range states {
+		StopRunner(state)
 	}
 }
 
